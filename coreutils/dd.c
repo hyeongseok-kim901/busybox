@@ -257,8 +257,9 @@ static int parse_comma_flags(char *val, const char *words, const char *error_in)
 int dd_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
 int dd_main(int argc UNUSED_PARAM, char **argv)
 {
+	int direct = 0;
 	static const char keywords[] ALIGN1 =
-		"bs\0""count\0""seek\0""skip\0""if\0""of\0"IF_FEATURE_DD_STATUS("status\0")
+		"bs\0""count\0""seek\0""skip\0""if\0""of\0""direct\0"IF_FEATURE_DD_STATUS("status\0")
 #if ENABLE_FEATURE_DD_IBS_OBS
 		"ibs\0""obs\0""conv\0""iflag\0""oflag\0"
 #endif
@@ -282,6 +283,7 @@ int dd_main(int argc UNUSED_PARAM, char **argv)
 		OP_skip,
 		OP_if,
 		OP_of,
+		OP_direct,
 		IF_FEATURE_DD_STATUS(OP_status,)
 #if ENABLE_FEATURE_DD_IBS_OBS
 		OP_ibs,
@@ -315,10 +317,10 @@ int dd_main(int argc UNUSED_PARAM, char **argv)
 	};
 	smallint exitcode = EXIT_FAILURE;
 	int i;
-	size_t ibs = 512;
+	size_t ibs = 4096;
 	char *ibuf;
 #if ENABLE_FEATURE_DD_IBS_OBS
-	size_t obs = 512;
+	size_t obs = 4096;
 	char *obuf;
 #else
 # define obs  ibs
@@ -414,6 +416,12 @@ int dd_main(int argc UNUSED_PARAM, char **argv)
 			outfile = val;
 			/*continue;*/
 		}
+		if (what == OP_direct) {
+			if (!strcmp("true", val)) {
+				fprintf(stderr, "direct I/O mode");
+				direct = 1;
+			}
+		}
 #if ENABLE_FEATURE_DD_STATUS
 		if (what == OP_status) {
 			int n;
@@ -427,7 +435,17 @@ int dd_main(int argc UNUSED_PARAM, char **argv)
 	} /* end of "for (argv[i])" */
 
 //XXX:FIXME for huge ibs or obs, malloc'ing them isn't the brightest idea ever
-	ibuf = xmalloc(ibs);
+	if (!direct)
+		ibuf = xmalloc(ibs);
+	else {
+		fprintf(stderr, "posix_memalign : ibs (%ld)\n", ibs);
+		if (posix_memalign((void **)&ibuf, 4096, ibs)==0) {
+			fprintf(stderr, "posix_memalign : ibs (%ld)\n", ibs);
+		} else {
+			bb_perror_msg("posix_memalign fail => do xmalloc");
+			ibuf = xmalloc(ibs);
+		}
+	}
 	obuf = ibuf;
 #if ENABLE_FEATURE_DD_IBS_OBS
 	if (ibs != obs) {
@@ -450,6 +468,9 @@ int dd_main(int argc UNUSED_PARAM, char **argv)
 	}
 	if (outfile) {
 		int oflag = O_WRONLY | O_CREAT;
+
+		if (direct)
+			oflag |= O_DIRECT;
 
 		if (!seek && !(G.flags & FLAG_NOTRUNC))
 			oflag |= O_TRUNC;
