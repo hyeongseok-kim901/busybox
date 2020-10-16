@@ -114,6 +114,9 @@ struct globals {
 #if ENABLE_FEATURE_DD_THIRD_STATUS_LINE
 	unsigned long long total_bytes;
 	unsigned long long begin_time_us;
+	unsigned long long opened_time_us;
+	unsigned long long written_time_us;
+	unsigned long long closed_time_us;
 #endif
 	int flags;
 } FIX_ALIASING;
@@ -189,6 +192,9 @@ static void dd_output_status(int UNUSED_PARAM cur_signal)
 			/* show fractional digit, use suffixes */
 			make_human_readable_str(bytes_sec, 1, 0)
 	);
+
+	fprintf(stderr, "begin(%llu) / opened(%llu) / written(%llu) / closed(%llu)\n",
+			G.begin_time_us, G.opened_time_us, G.written_time_us, G.closed_time_us);
 #endif
 }
 
@@ -479,6 +485,10 @@ int dd_main(int argc UNUSED_PARAM, char **argv)
 
 		xmove_fd(xopen(outfile, oflag), ofd);
 
+#if ENABLE_FEATURE_DD_THIRD_STATUS_LINE
+		G.opened_time_us = monotonic_us();
+#endif
+
 		if (seek && !(G.flags & FLAG_NOTRUNC)) {
 			size_t blocksz = (G.flags & FLAG_SEEK_BYTES) ? 1 : obs;
 			if (ftruncate(ofd, seek * blocksz) < 0) {
@@ -606,6 +616,11 @@ int dd_main(int argc UNUSED_PARAM, char **argv)
 			goto out_status;
 	}
 #endif
+
+#if ENABLE_FEATURE_DD_THIRD_STATUS_LINE
+	G.written_time_us = monotonic_us();
+#endif
+
 	if (close(ifd) < 0) {
  die_infile:
 		bb_simple_perror_msg_and_die(infile);
@@ -615,6 +630,10 @@ int dd_main(int argc UNUSED_PARAM, char **argv)
  die_outfile:
 		bb_simple_perror_msg_and_die(outfile);
 	}
+
+#if ENABLE_FEATURE_DD_THIRD_STATUS_LINE
+	G.closed_time_us = monotonic_us();
+#endif
 
 	exitcode = EXIT_SUCCESS;
  out_status:
